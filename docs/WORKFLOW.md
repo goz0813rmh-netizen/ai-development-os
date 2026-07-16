@@ -1,29 +1,29 @@
 # WORKFLOW
 
-Discovery
+Discovery（課題発見）
 
 ↓
 
-Backlog更新
+Backlog Update（Backlog更新）
 
 ↓
 
-Build
+Build（実装）
 
 ↓
 
-Review
+Review（レビュー）
 
 ↓
 
-GitHub更新
+GitHub Update（GitHub更新）
 
 ↓
 
-CEOレビュー
+CEO Review（CEOレビュー）
 
 ↓
 
-Done
+Done（完了）
 
-※表記は「英語フェーズ名 + 日本語動詞/説明」で統一する。
+※表記は「英語フェーズ名 + 日本語説明」で統一する。
