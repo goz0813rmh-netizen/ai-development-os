@@ -9,6 +9,16 @@ const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
 const issueNumber = Number(process.env.ISSUE_NUMBER);
 const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
+const contextFiles = [
+  "README.md",
+  "docs/COMPANY.md",
+  "docs/CONSTITUTION.md",
+  "docs/ORGANIZATION.md",
+  "docs/WORKFLOW.md",
+  "docs/BACKLOG.md",
+  "docs/DECISIONS.md",
+];
+
 async function github(path, options = {}) {
   const response = await fetch(`https://api.github.com${path}`, {
     ...options,
@@ -23,11 +33,38 @@ async function github(path, options = {}) {
   return response.status === 204 ? null : response.json();
 }
 
-async function runAgent(name, instructions, task, previousOutputs) {
+async function loadCompanyContext() {
+  const sections = [];
+
+  for (const path of contextFiles) {
+    try {
+      const content = await fs.readFile(path, "utf8");
+      sections.push(`## ${path}\n${content.trim()}`);
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        console.warn(`Context file not found: ${path}`);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (sections.length === 0) return "会社コンテキストなし";
+  return sections.join("\n\n");
+}
+
+async function runAgent(name, instructions, companyContext, task, previousOutputs) {
   const input = [
     `あなたはAI Company OSの${name}です。`,
-    "以下の役割定義に厳密に従ってください。",
+    "以下の役割定義と会社コンテキストに厳密に従ってください。",
+    "一般論ではなく、この会社・プロダクト・Issueに固有の判断をしてください。",
+    "事実と推測を分け、不足情報があっても合理的な仮置きを明示して前進してください。",
+    "",
+    "# 役割定義",
     instructions,
+    "",
+    "# 会社コンテキスト",
+    companyContext,
     "",
     "# 今回のIssue",
     task,
@@ -45,7 +82,7 @@ async function runAgent(name, instructions, task, previousOutputs) {
     body: JSON.stringify({
       model,
       input,
-      max_output_tokens: 900,
+      max_output_tokens: 1200,
     }),
   });
 
@@ -63,6 +100,9 @@ async function runAgent(name, instructions, task, previousOutputs) {
 const issue = await github(`/repos/${owner}/${repo}/issues/${issueNumber}`);
 if (issue.pull_request) throw new Error("Pull requests are not supported. Run this on an Issue.");
 
+const companyContext = await loadCompanyContext();
+console.log(`Loaded ${contextFiles.length} company context files`);
+
 const task = `タイトル: ${issue.title}\n\n本文:\n${issue.body || "（本文なし）"}`;
 const roles = [
   ["Facilitator", "docs/agents/FACILITATOR.md"],
@@ -75,14 +115,15 @@ const outputs = [];
 for (const [name, path] of roles) {
   const instructions = await fs.readFile(path, "utf8");
   const previous = outputs.map((x) => `## ${x.name}\n${x.text}`).join("\n\n");
-  const text = await runAgent(name, instructions, task, previous);
+  const text = await runAgent(name, instructions, companyContext, task, previous);
   outputs.push({ name, text });
   console.log(`Completed: ${name}`);
 }
 
 const body = [
-  "# AI Company OS v0.1",
+  "# AI Company OS v0.2",
   `Issue #${issueNumber}を4人のAgentで処理しました。`,
+  "会社資料を共通コンテキストとして参照しています。",
   ...outputs.map((x) => `## ${x.name}\n${x.text}`),
   "---",
   `Model: \`${model}\``,
