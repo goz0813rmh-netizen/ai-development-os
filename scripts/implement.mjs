@@ -11,6 +11,7 @@ for (const key of ["OPENAI_API_KEY", "GITHUB_TOKEN", "GITHUB_REPOSITORY", "ISSUE
 const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
 const issueNumber = Number(process.env.ISSUE_NUMBER);
 const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+const baseBranch = process.env.GITHUB_BASE_BRANCH || "main";
 
 async function github(url, options = {}) {
   const response = await fetch(`https://api.github.com${url}`, {
@@ -77,6 +78,10 @@ function safePath(value) {
   return file;
 }
 
+function githubErrorMessage(error) {
+  return String(error?.details?.message || error?.body || error?.message || error);
+}
+
 const issue = await github(`/repos/${owner}/${repo}/issues/${issueNumber}`);
 if (issue.pull_request) throw new Error("PR is not supported");
 const history = await comments();
@@ -118,7 +123,6 @@ for (const change of plan.files) {
 }
 
 const branch = `ai/issue-${issueNumber}-implementation`;
-const baseBranch = "main";
 const open = await github(`/repos/${owner}/${repo}/pulls?state=open&head=${owner}:${branch}`);
 if (open.length) throw new Error(`Implementation PR already exists: ${open[0].html_url}`);
 
@@ -152,7 +156,7 @@ try {
     }),
   });
 } catch (error) {
-  const policyMessage = String(error?.details?.message || error?.body || error?.message || error);
+  const policyMessage = githubErrorMessage(error);
   const blockedByPolicy =
     error?.status === 403 &&
     /not permitted to create or approve pull requests/i.test(policyMessage);
