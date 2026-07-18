@@ -66,7 +66,7 @@ async function runAgent(name, instructions, companyContext, task, previousOutput
     "# 会社コンテキスト",
     companyContext,
     "",
-    "# 今回のIssue",
+    "# 今回の入力",
     task,
     "",
     "# 先行Agentの出力",
@@ -103,7 +103,27 @@ if (issue.pull_request) throw new Error("Pull requests are not supported. Run th
 const companyContext = await loadCompanyContext();
 console.log(`Loaded ${contextFiles.length} company context files`);
 
-const task = `タイトル: ${issue.title}\n\n本文:\n${issue.body || "（本文なし）"}`;
+const originalIssue = `タイトル: ${issue.title}\n\n本文:\n${issue.body || "（本文なし）"}`;
+const analyzerInstructions = await fs.readFile("docs/agents/ISSUE_ANALYZER.md", "utf8");
+const issueBrief = await runAgent(
+  "Issue Analyzer",
+  analyzerInstructions,
+  companyContext,
+  originalIssue,
+  "なし",
+);
+console.log("Completed: Issue Analyzer");
+
+const sharedTask = [
+  "# 原文",
+  originalIssue,
+  "",
+  "# Issue Brief",
+  issueBrief,
+  "",
+  "後続AgentはIssue Briefを共通認識として扱い、原文との矛盾がある場合は原文を優先してください。",
+].join("\n");
+
 const roles = [
   ["Facilitator", "docs/agents/FACILITATOR.md"],
   ["CPO", "docs/agents/CPO.md"],
@@ -115,19 +135,20 @@ const outputs = [];
 for (const [name, path] of roles) {
   const instructions = await fs.readFile(path, "utf8");
   const previous = outputs.map((x) => `## ${x.name}\n${x.text}`).join("\n\n");
-  const text = await runAgent(name, instructions, companyContext, task, previous);
+  const text = await runAgent(name, instructions, companyContext, sharedTask, previous);
   outputs.push({ name, text });
   console.log(`Completed: ${name}`);
 }
 
 const body = [
-  "# AI Company OS v0.2",
-  `Issue #${issueNumber}を4人のAgentで処理しました。`,
-  "会社資料を共通コンテキストとして参照しています。",
+  "# AI Company OS v0.3",
+  `Issue #${issueNumber}をIssue Analyzerと4人のAgentで処理しました。`,
+  "会社資料と構造化したIssue Briefを共通コンテキストとして参照しています。",
+  `## Issue Brief\n${issueBrief}`,
   ...outputs.map((x) => `## ${x.name}\n${x.text}`),
   "---",
   `Model: \`${model}\``,
-  "CEOは内容を承認・修正し、次のIssueへ進めてください。",
+  "CEOはIssue Briefが意図に合っているかを確認し、承認・修正してください。",
 ].join("\n\n");
 
 await github(`/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
