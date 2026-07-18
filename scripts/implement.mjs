@@ -11,6 +11,7 @@ for (const key of ["OPENAI_API_KEY", "GITHUB_TOKEN", "GITHUB_REPOSITORY", "ISSUE
 const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
 const issueNumber = Number(process.env.ISSUE_NUMBER);
 const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+const baseBranch = process.env.GITHUB_BASE_BRANCH || "main";
 
 async function github(url, options = {}) {
   const response = await fetch(`https://api.github.com${url}`, {
@@ -22,7 +23,20 @@ async function github(url, options = {}) {
       ...(options.headers || {}),
     },
   });
-  if (!response.ok) throw new Error(`GitHub API ${response.status}: ${await response.text()}`);
+  if (!response.ok) {
+    const body = await response.text();
+    const error = new Error(`GitHub API ${response.status}: ${body}`);
+    let details = null;
+    try {
+      details = JSON.parse(body);
+    } catch {
+      details = null;
+    }
+    error.status = response.status;
+    error.body = body;
+    error.details = details;
+    throw error;
+  }
   return response.status === 204 ? null : response.json();
 }
 
@@ -61,6 +75,16 @@ function safePath(value) {
     throw new Error(`Protected path: ${file}`);
   }
   return file;
+}
+
+function githubErrorMessage(error) {
+  const message = error?.details?.message || error?.body || error?.message;
+  if (typeof message === "string" && message.trim()) return message;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
 }
 
 const issue = await github(`/repos/${owner}/${repo}/issues/${issueNumber}`);
@@ -124,19 +148,34 @@ await run("git", ["add", "--all"]);
 await run("git", ["commit", "-m", String(plan.commit_message || `feat: implement issue #${issueNumber}`).slice(0, 120)]);
 await run("git", ["push", "--set-upstream", "origin", branch]);
 
-const pr = await github(`/repos/${owner}/${repo}/pulls`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    title: String(plan.pr_title || `Issue #${issueNumber}: implementation`).slice(0, 200),
-    head: branch,
-    base: "main",
-    body: `${plan.pr_body || plan.summary || "Approved implementation"}\n\nCloses #${issueNumber}\n\n- CEO APPROVED確認済み\n- 自動マージなし\n- git diff --check実行済み`,
-  }),
-});
+let pr = null;
+try {
+  pr = await github(`/repos/${owner}/${repo}/pulls`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: String(plan.pr_title || `Issue #${issueNumber}: implementation`).slice(0, 200),
+      head: branch,
+      base: baseBranch,
+      body: `${plan.pr_body || plan.summary || "Approved implementation"}\n\nCloses #${issueNumber}\n\n- CEO APPROVED確認済み\n- 自動マージなし\n- git diff --check実行済み`,
+    }),
+  });
+} catch (error) {
+  const policyMessage = githubErrorMessage(error);
+  const blockedByPolicy =
+    error?.status === 403 &&
+    /not permitted.*pull requests?/i.test(policyMessage);
+  if (!blockedByPolicy) throw error;
+  console.warn(`PR auto-creation skipped by GitHub Actions policy: ${policyMessage}`);
+}
 
+const compareUrl = `https://github.com/${owner}/${repo}/compare/${baseBranch}...${branch}?expand=1`;
 await github(`/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ body: `✅ Implementerがレビュー用PRを作成しました。\n- ${pr.html_url}\n- 変更ファイル数: ${plan.files.length}\n- 自動マージ: なし` }),
+  body: JSON.stringify({
+    body: pr
+      ? `✅ Implementerがレビュー用PRを作成しました。\n- ${pr.html_url}\n- 変更ファイル数: ${plan.files.length}\n- 自動マージ: なし`
+      : `⚠️ Implementerは実装ブランチをpushしましたが、GitHub ActionsポリシーによりPRを自動作成できませんでした。\n- Compare: ${compareUrl}\n- 変更ファイル数: ${plan.files.length}\n- 手動でPRを作成してください`,
+  }),
 });
