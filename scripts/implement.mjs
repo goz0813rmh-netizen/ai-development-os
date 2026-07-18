@@ -29,7 +29,9 @@ async function github(url, options = {}) {
     let details = null;
     try {
       details = JSON.parse(body);
-    } catch {}
+    } catch {
+      details = null;
+    }
     error.status = response.status;
     error.body = body;
     error.details = details;
@@ -162,7 +164,7 @@ try {
   const policyMessage = githubErrorMessage(error);
   const blockedByPolicy =
     error?.status === 403 &&
-    /not permitted to create or approve pull requests/i.test(policyMessage);
+    /not permitted.*pull requests?/i.test(policyMessage);
   if (!blockedByPolicy) throw error;
   console.warn(`PR auto-creation skipped by GitHub Actions policy: ${policyMessage}`);
 }
