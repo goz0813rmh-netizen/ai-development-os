@@ -16,7 +16,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 concurrency:
@@ -48,10 +48,30 @@ jobs:
             exit 1
           fi
 
-      - name: Run Facilitator, CPO, Auditor and Historian
+      - name: Run AI Company OS
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ inputs.model || 'gpt-4.1-mini' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
         run: node scripts/company.mjs
+
+  record-approved-decision:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request == null &&
+      startsWith(github.event.comment.body, 'APPROVED') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Record approved decision
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          CEO_COMMENT: ${{ github.event.comment.body }}
+        run: node scripts/record-decision.mjs
