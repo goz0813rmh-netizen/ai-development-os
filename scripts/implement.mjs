@@ -63,6 +63,11 @@ function safePath(value) {
   return file;
 }
 
+async function remoteBranchSha(branch) {
+  const { stdout } = await run("git", ["ls-remote", "--heads", "origin", `refs/heads/${branch}`]);
+  return stdout.trim().split(/\s+/)[0] || null;
+}
+
 const issue = await github(`/repos/${owner}/${repo}/issues/${issueNumber}`);
 if (issue.pull_request) throw new Error("PR is not supported");
 const history = await comments();
@@ -96,7 +101,7 @@ if (!Array.isArray(plan.files) || plan.files.length < 1 || plan.files.length > 1
 
 for (const change of plan.files) {
   change.path = safePath(change.path);
-  if (!['create', 'update', 'delete'].includes(change.action)) throw new Error(`Invalid action: ${change.action}`);
+  if (!["create", "update", "delete"].includes(change.action)) throw new Error(`Invalid action: ${change.action}`);
   if (change.action !== "delete" && (typeof change.content !== "string" || Buffer.byteLength(change.content) > 100000)) throw new Error(`Invalid content: ${change.path}`);
   const exists = await fs.access(change.path).then(() => true).catch(() => false);
   if (change.action === "create" && exists) throw new Error(`Already exists: ${change.path}`);
@@ -105,11 +110,13 @@ for (const change of plan.files) {
 
 const branch = `ai/issue-${issueNumber}-implementation`;
 const open = await github(`/repos/${owner}/${repo}/pulls?state=open&head=${owner}:${branch}`);
-if (open.length) throw new Error(`Implementation PR already exists: ${open[0].html_url}`);
 
 await run("git", ["config", "user.name", "ai-company-os[bot]"]);
 await run("git", ["config", "user.email", "ai-company-os[bot]@users.noreply.github.com"]);
-await run("git", ["checkout", "-b", branch]);
+await run("git", ["fetch", "origin", "main", branch]);
+const previousRemoteSha = await remoteBranchSha(branch);
+await run("git", ["checkout", "-B", branch, "origin/main"]);
+
 for (const change of plan.files) {
   if (change.action === "delete") await fs.rm(change.path);
   else {
@@ -117,26 +124,39 @@ for (const change of plan.files) {
     await fs.writeFile(change.path, change.content, "utf8");
   }
 }
+
 await run("git", ["diff", "--check"]);
 const { stdout: status } = await run("git", ["status", "--porcelain"]);
 if (!status.trim()) throw new Error("No effective changes");
 await run("git", ["add", "--all"]);
 await run("git", ["commit", "-m", String(plan.commit_message || `feat: implement issue #${issueNumber}`).slice(0, 120)]);
-await run("git", ["push", "--set-upstream", "origin", branch]);
 
-const pr = await github(`/repos/${owner}/${repo}/pulls`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    title: String(plan.pr_title || `Issue #${issueNumber}: implementation`).slice(0, 200),
-    head: branch,
-    base: "main",
-    body: `${plan.pr_body || plan.summary || "Approved implementation"}\n\nCloses #${issueNumber}\n\n- CEO APPROVED確認済み\n- 自動マージなし\n- git diff --check実行済み`,
-  }),
-});
+if (previousRemoteSha) {
+  await run("git", ["push", "--set-upstream", "origin", branch, `--force-with-lease=refs/heads/${branch}:${previousRemoteSha}`]);
+} else {
+  await run("git", ["push", "--set-upstream", "origin", branch]);
+}
+
+let pr = open[0];
+let action = "更新";
+if (!pr) {
+  pr = await github(`/repos/${owner}/${repo}/pulls`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: String(plan.pr_title || `Issue #${issueNumber}: implementation`).slice(0, 200),
+      head: branch,
+      base: "main",
+      body: `${plan.pr_body || plan.summary || "Approved implementation"}\n\nCloses #${issueNumber}\n\n- CEO APPROVED確認済み\n- 自動マージなし\n- git diff --check実行済み`,
+    }),
+  });
+  action = "作成";
+}
 
 await github(`/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ body: `✅ Implementerがレビュー用PRを作成しました。\n- ${pr.html_url}\n- 変更ファイル数: ${plan.files.length}\n- 自動マージ: なし` }),
+  body: JSON.stringify({
+    body: `✅ Implementerがレビュー用PRを${action}しました。\n- ${pr.html_url}\n- 変更ファイル数: ${plan.files.length}\n- 再実行対応: 有効\n- 自動マージ: なし`,
+  }),
 });
