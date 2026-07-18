@@ -59,6 +59,7 @@ async function runAgent(name, instructions, companyContext, task, previousOutput
     "以下の役割定義と会社コンテキストに厳密に従ってください。",
     "一般論ではなく、この会社・プロダクト・Issueに固有の判断をしてください。",
     "事実と推測を分け、不足情報があっても合理的な仮置きを明示して前進してください。",
+    "CEO未承認の仮説は確定事項として扱わず、その仮説に依存する判断は明示してください。",
     "",
     "# 役割定義",
     instructions,
@@ -66,7 +67,7 @@ async function runAgent(name, instructions, companyContext, task, previousOutput
     "# 会社コンテキスト",
     companyContext,
     "",
-    "# 今回のIssue",
+    "# 今回の入力",
     task,
     "",
     "# 先行Agentの出力",
@@ -103,7 +104,28 @@ if (issue.pull_request) throw new Error("Pull requests are not supported. Run th
 const companyContext = await loadCompanyContext();
 console.log(`Loaded ${contextFiles.length} company context files`);
 
-const task = `タイトル: ${issue.title}\n\n本文:\n${issue.body || "（本文なし）"}`;
+const originalIssue = `タイトル: ${issue.title}\n\n本文:\n${issue.body || "（本文なし）"}`;
+const analyzerInstructions = await fs.readFile("docs/agents/ISSUE_ANALYZER.md", "utf8");
+const issueBrief = await runAgent(
+  "Issue Analyzer",
+  analyzerInstructions,
+  companyContext,
+  originalIssue,
+  "なし",
+);
+console.log("Completed: Issue Analyzer");
+
+const sharedTask = [
+  "# 原文",
+  originalIssue,
+  "",
+  "# Issue Brief",
+  issueBrief,
+  "",
+  "後続AgentはIssue Briefを共通認識として扱い、原文との矛盾がある場合は原文を優先してください。",
+  "Assumptions（CEO未承認）は検討用の仮置きです。確定事項として扱わず、依存する提案にはその旨を明記してください。",
+].join("\n");
+
 const roles = [
   ["Facilitator", "docs/agents/FACILITATOR.md"],
   ["CPO", "docs/agents/CPO.md"],
@@ -115,19 +137,26 @@ const outputs = [];
 for (const [name, path] of roles) {
   const instructions = await fs.readFile(path, "utf8");
   const previous = outputs.map((x) => `## ${x.name}\n${x.text}`).join("\n\n");
-  const text = await runAgent(name, instructions, companyContext, task, previous);
+  const text = await runAgent(name, instructions, companyContext, sharedTask, previous);
   outputs.push({ name, text });
   console.log(`Completed: ${name}`);
 }
 
 const body = [
-  "# AI Company OS v0.2",
-  `Issue #${issueNumber}を4人のAgentで処理しました。`,
-  "会社資料を共通コンテキストとして参照しています。",
+  "# AI Company OS v0.3",
+  `Issue #${issueNumber}をIssue Analyzerと4人のAgentで処理しました。`,
+  "会社資料と構造化したIssue Briefを共通コンテキストとして参照しています。",
+  `## Issue Brief\n${issueBrief}`,
+  "> ⚠️ **CEOレビュー対象**: `Assumptions（CEO未承認）`はAIによる仮置きです。承認されるまでは確定事項ではありません。",
   ...outputs.map((x) => `## ${x.name}\n${x.text}`),
   "---",
+  "## CEOに確認してほしいこと",
+  "1. `Assumptions（CEO未承認）`は正しいか",
+  "2. 修正・削除すべき仮説はあるか",
+  "3. この仮説を前提に次へ進めてよいか",
+  "",
+  "回答例: `仮説1・2はOK、仮説3は削除`",
   `Model: \`${model}\``,
-  "CEOは内容を承認・修正し、次のIssueへ進めてください。",
 ].join("\n\n");
 
 await github(`/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
