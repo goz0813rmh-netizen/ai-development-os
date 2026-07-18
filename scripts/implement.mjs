@@ -124,19 +124,29 @@ await run("git", ["add", "--all"]);
 await run("git", ["commit", "-m", String(plan.commit_message || `feat: implement issue #${issueNumber}`).slice(0, 120)]);
 await run("git", ["push", "--set-upstream", "origin", branch]);
 
-const pr = await github(`/repos/${owner}/${repo}/pulls`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    title: String(plan.pr_title || `Issue #${issueNumber}: implementation`).slice(0, 200),
-    head: branch,
-    base: "main",
-    body: `${plan.pr_body || plan.summary || "Approved implementation"}\n\nCloses #${issueNumber}\n\n- CEO APPROVED確認済み\n- 自動マージなし\n- git diff --check実行済み`,
-  }),
-});
+let pr = null;
+try {
+  pr = await github(`/repos/${owner}/${repo}/pulls`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: String(plan.pr_title || `Issue #${issueNumber}: implementation`).slice(0, 200),
+      head: branch,
+      base: "main",
+      body: `${plan.pr_body || plan.summary || "Approved implementation"}\n\nCloses #${issueNumber}\n\n- CEO APPROVED確認済み\n- 自動マージなし\n- git diff --check実行済み`,
+    }),
+  });
+} catch (error) {
+  if (!/GitHub API 403: .*create or approve pull requests/i.test(String(error))) throw error;
+}
 
+const compareUrl = `https://github.com/${owner}/${repo}/compare/main...${branch}?expand=1`;
 await github(`/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ body: `✅ Implementerがレビュー用PRを作成しました。\n- ${pr.html_url}\n- 変更ファイル数: ${plan.files.length}\n- 自動マージ: なし` }),
+  body: JSON.stringify({
+    body: pr
+      ? `✅ Implementerがレビュー用PRを作成しました。\n- ${pr.html_url}\n- 変更ファイル数: ${plan.files.length}\n- 自動マージ: なし`
+      : `⚠️ Implementerは実装ブランチをpushしましたが、GitHub ActionsポリシーによりPRを自動作成できませんでした。\n- Compare: ${compareUrl}\n- 変更ファイル数: ${plan.files.length}\n- 手動でPRを作成してください`,
+  }),
 });
