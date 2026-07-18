@@ -25,8 +25,16 @@ async function github(url, options = {}) {
   if (!response.ok) {
     const body = await response.text();
     const error = new Error(`GitHub API ${response.status}: ${body}`);
+    const details = (() => {
+      try {
+        return JSON.parse(body);
+      } catch {
+        return null;
+      }
+    })();
     error.status = response.status;
     error.body = body;
+    error.details = details;
     throw error;
   }
   return response.status === 204 ? null : response.json();
@@ -143,7 +151,9 @@ try {
     }),
   });
 } catch (error) {
-  const blockedByPolicy = error?.status === 403 && /create or approve pull requests/i.test(String(error?.body || error));
+  const blockedByPolicy =
+    error?.status === 403 &&
+    /not permitted to create or approve pull requests/i.test(String(error?.details?.message || error?.body || error));
   if (!blockedByPolicy) throw error;
   console.warn(`PR auto-creation skipped: ${String(error?.message || error)}`);
 }
