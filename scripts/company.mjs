@@ -59,6 +59,7 @@ async function runAgent(name, instructions, companyContext, task, previousOutput
     "以下の役割定義と会社コンテキストに厳密に従ってください。",
     "一般論ではなく、この会社・プロダクト・Issueに固有の判断をしてください。",
     "事実と推測を分け、不足情報があっても合理的な仮置きを明示して前進してください。",
+    "CEO未承認の仮説は確定事項として扱わず、その仮説に依存する判断は明示してください。",
     "",
     "# 役割定義",
     instructions,
@@ -122,6 +123,7 @@ const sharedTask = [
   issueBrief,
   "",
   "後続AgentはIssue Briefを共通認識として扱い、原文との矛盾がある場合は原文を優先してください。",
+  "Assumptions（CEO未承認）は検討用の仮置きです。確定事項として扱わず、依存する提案にはその旨を明記してください。",
 ].join("\n");
 
 const roles = [
@@ -145,10 +147,16 @@ const body = [
   `Issue #${issueNumber}をIssue Analyzerと4人のAgentで処理しました。`,
   "会社資料と構造化したIssue Briefを共通コンテキストとして参照しています。",
   `## Issue Brief\n${issueBrief}`,
+  "> ⚠️ **CEOレビュー対象**: `Assumptions（CEO未承認）`はAIによる仮置きです。承認されるまでは確定事項ではありません。",
   ...outputs.map((x) => `## ${x.name}\n${x.text}`),
   "---",
+  "## CEOに確認してほしいこと",
+  "1. `Assumptions（CEO未承認）`は正しいか",
+  "2. 修正・削除すべき仮説はあるか",
+  "3. この仮説を前提に次へ進めてよいか",
+  "",
+  "回答例: `仮説1・2はOK、仮説3は削除`",
   `Model: \`${model}\``,
-  "CEOはIssue Briefが意図に合っているかを確認し、承認・修正してください。",
 ].join("\n\n");
 
 await github(`/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
