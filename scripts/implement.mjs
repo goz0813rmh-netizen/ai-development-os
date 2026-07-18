@@ -26,13 +26,10 @@ async function github(url, options = {}) {
   if (!response.ok) {
     const body = await response.text();
     const error = new Error(`GitHub API ${response.status}: ${body}`);
-    const details = (() => {
-      try {
-        return JSON.parse(body);
-      } catch {
-        return null;
-      }
-    })();
+    let details = null;
+    try {
+      details = JSON.parse(body);
+    } catch {}
     error.status = response.status;
     error.body = body;
     error.details = details;
