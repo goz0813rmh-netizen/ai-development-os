@@ -22,7 +22,13 @@ async function github(url, options = {}) {
       ...(options.headers || {}),
     },
   });
-  if (!response.ok) throw new Error(`GitHub API ${response.status}: ${await response.text()}`);
+  if (!response.ok) {
+    const body = await response.text();
+    const error = new Error(`GitHub API ${response.status}: ${body}`);
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
   return response.status === 204 ? null : response.json();
 }
 
@@ -137,7 +143,9 @@ try {
     }),
   });
 } catch (error) {
-  if (!/GitHub API 403: .*create or approve pull requests/i.test(String(error))) throw error;
+  const blockedByPolicy = error?.status === 403 && /create or approve pull requests/i.test(String(error?.body || error));
+  if (!blockedByPolicy) throw error;
+  console.warn(`PR auto-creation skipped: ${String(error?.message || error)}`);
 }
 
 const compareUrl = `https://github.com/${owner}/${repo}/compare/main...${branch}?expand=1`;
