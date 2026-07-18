@@ -76,7 +76,13 @@ function safePath(value) {
 }
 
 function githubErrorMessage(error) {
-  return String(error?.details?.message || error?.body || error?.message || error);
+  const message = error?.details?.message || error?.body || error?.message;
+  if (typeof message === "string" && message.trim()) return message;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
 }
 
 const issue = await github(`/repos/${owner}/${repo}/issues/${issueNumber}`);
