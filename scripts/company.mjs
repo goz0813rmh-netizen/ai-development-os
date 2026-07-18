@@ -153,6 +153,28 @@ const architecture = await runAgent(
 );
 console.log("Completed: Architect");
 
+const engineerInstructions = await fs.readFile("docs/agents/ENGINEER.md", "utf8");
+const engineerTask = [
+  architectTask,
+  "",
+  "# Architect",
+  architecture,
+  "",
+  "Architectの変更方針を、実装担当AIが追加判断せずに着手できる最小の実装計画へ変換してください。要件・優先順位・設計は変更しないでください。",
+].join("\n");
+const engineeringPlan = await runAgent(
+  "Engineer",
+  engineerInstructions,
+  companyContext,
+  engineerTask,
+  [
+    `## Issue Analyzer\n${issueBrief}`,
+    `## Planner\n${plan}`,
+    `## Architect\n${architecture}`,
+  ].join("\n\n"),
+);
+console.log("Completed: Engineer");
+
 const sharedTask = [
   "# 原文",
   originalIssue,
@@ -166,7 +188,10 @@ const sharedTask = [
   "# Architect",
   architecture,
   "",
-  "後続AgentはIssue Briefを共通認識、Plannerを実行方針、Architectを変更方針として扱い、原文との矛盾がある場合は原文を優先してください。",
+  "# Engineer",
+  engineeringPlan,
+  "",
+  "後続AgentはIssue Briefを共通認識、Plannerを実行方針、Architectを変更方針、Engineerを実装計画として扱い、原文との矛盾がある場合は原文を優先してください。",
   "Assumptions（CEO未承認）は検討用の仮置きです。確定事項として扱わず、依存する提案にはその旨を明記してください。",
 ].join("\n");
 
@@ -184,6 +209,7 @@ for (const [name, path] of roles) {
     `## Issue Analyzer\n${issueBrief}`,
     `## Planner\n${plan}`,
     `## Architect\n${architecture}`,
+    `## Engineer\n${engineeringPlan}`,
     ...outputs.map((x) => `## ${x.name}\n${x.text}`),
   ].join("\n\n");
   const text = await runAgent(name, instructions, companyContext, sharedTask, previous);
@@ -192,21 +218,23 @@ for (const [name, path] of roles) {
 }
 
 const body = [
-  "# AI Company OS v0.4",
-  `Issue #${issueNumber}をIssue Analyzer、Planner、Architect、4人のAgentで処理しました。`,
-  "会社資料、Issue Brief、実行優先順位、変更方針を共通コンテキストとして参照しています。",
+  "# AI Company OS v0.5",
+  `Issue #${issueNumber}をIssue Analyzer、Planner、Architect、Engineer、4人の後続Agentで処理しました。`,
+  "会社資料、Issue Brief、実行優先順位、変更方針、実装計画を共通コンテキストとして参照しています。",
   `## Issue Brief\n${issueBrief}`,
   "> ⚠️ **CEOレビュー対象**: `Assumptions（CEO未承認）`はAIによる仮置きです。承認されるまでは確定事項ではありません。",
   `## Planner\n${plan}`,
   `## Architect\n${architecture}`,
+  `## Engineer\n${engineeringPlan}`,
   ...outputs.map((x) => `## ${x.name}\n${x.text}`),
   "---",
   "## CEOに確認してほしいこと",
   "1. `Assumptions（CEO未承認）`は正しいか",
   "2. Plannerの優先順位と対象外は妥当か",
   "3. Architectの変更方針で実装へ進めてよいか",
+  "4. Engineerの実装計画で着手してよいか",
   "",
-  "回答例: `仮説はOK。優先順位・設計ともにGO`",
+  "回答例: `仮説はOK。優先順位・設計・実装計画ともにGO`",
   `Model: \`${model}\``,
 ].join("\n\n");
 
