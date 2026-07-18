@@ -152,14 +152,12 @@ try {
     }),
   });
 } catch (error) {
-  let policyMessage = "";
-  if (typeof error?.details?.message === "string") policyMessage = error.details.message;
-  else if (typeof error?.body === "string") policyMessage = error.body;
+  const policyMessage = String(error?.details?.message || error?.body || error?.message || error);
   const blockedByPolicy =
     error?.status === 403 &&
     /not permitted to create or approve pull requests/i.test(policyMessage);
   if (!blockedByPolicy) throw error;
-  console.warn(`PR auto-creation skipped by GitHub Actions policy: ${policyMessage || String(error?.message || error)}`);
+  console.warn(`PR auto-creation skipped by GitHub Actions policy: ${policyMessage}`);
 }
 
 const compareUrl = `https://github.com/${owner}/${repo}/compare/${baseBranch}...${branch}?expand=1`;
