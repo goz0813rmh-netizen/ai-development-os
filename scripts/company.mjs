@@ -135,6 +135,24 @@ const plan = await runAgent(
 );
 console.log("Completed: Planner");
 
+const architectInstructions = await fs.readFile("docs/agents/ARCHITECT.md", "utf8");
+const architectTask = [
+  plannerTask,
+  "",
+  "# Planner",
+  plan,
+  "",
+  "Plannerの最優先項目を実現する最小の変更方針を設計してください。Plannerが今はやらないとした項目は対象外です。",
+].join("\n");
+const architecture = await runAgent(
+  "Architect",
+  architectInstructions,
+  companyContext,
+  architectTask,
+  [`## Issue Analyzer\n${issueBrief}`, `## Planner\n${plan}`].join("\n\n"),
+);
+console.log("Completed: Architect");
+
 const sharedTask = [
   "# 原文",
   originalIssue,
@@ -145,7 +163,10 @@ const sharedTask = [
   "# Planner",
   plan,
   "",
-  "後続AgentはIssue Briefを共通認識、Plannerを実行方針として扱い、原文との矛盾がある場合は原文を優先してください。",
+  "# Architect",
+  architecture,
+  "",
+  "後続AgentはIssue Briefを共通認識、Plannerを実行方針、Architectを変更方針として扱い、原文との矛盾がある場合は原文を優先してください。",
   "Assumptions（CEO未承認）は検討用の仮置きです。確定事項として扱わず、依存する提案にはその旨を明記してください。",
 ].join("\n");
 
@@ -162,6 +183,7 @@ for (const [name, path] of roles) {
   const previous = [
     `## Issue Analyzer\n${issueBrief}`,
     `## Planner\n${plan}`,
+    `## Architect\n${architecture}`,
     ...outputs.map((x) => `## ${x.name}\n${x.text}`),
   ].join("\n\n");
   const text = await runAgent(name, instructions, companyContext, sharedTask, previous);
@@ -170,20 +192,21 @@ for (const [name, path] of roles) {
 }
 
 const body = [
-  "# AI Company OS v0.3",
-  `Issue #${issueNumber}をIssue Analyzer、Planner、4人のAgentで処理しました。`,
-  "会社資料、構造化したIssue Brief、実行優先順位を共通コンテキストとして参照しています。",
+  "# AI Company OS v0.4",
+  `Issue #${issueNumber}をIssue Analyzer、Planner、Architect、4人のAgentで処理しました。`,
+  "会社資料、Issue Brief、実行優先順位、変更方針を共通コンテキストとして参照しています。",
   `## Issue Brief\n${issueBrief}`,
   "> ⚠️ **CEOレビュー対象**: `Assumptions（CEO未承認）`はAIによる仮置きです。承認されるまでは確定事項ではありません。",
   `## Planner\n${plan}`,
+  `## Architect\n${architecture}`,
   ...outputs.map((x) => `## ${x.name}\n${x.text}`),
   "---",
   "## CEOに確認してほしいこと",
   "1. `Assumptions（CEO未承認）`は正しいか",
-  "2. Plannerの最優先・今はやらない・完了条件は妥当か",
-  "3. 修正すべき仮説または優先順位はあるか",
+  "2. Plannerの優先順位と対象外は妥当か",
+  "3. Architectの変更方針で実装へ進めてよいか",
   "",
-  "回答例: `仮説1・2はOK。最優先もOK。次点は保留`",
+  "回答例: `仮説はOK。優先順位・設計ともにGO`",
   `Model: \`${model}\``,
 ].join("\n\n");
 
