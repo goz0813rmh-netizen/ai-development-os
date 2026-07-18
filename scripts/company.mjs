@@ -60,6 +60,7 @@ async function runAgent(name, instructions, companyContext, task, previousOutput
     "一般論ではなく、この会社・プロダクト・Issueに固有の判断をしてください。",
     "事実と推測を分け、不足情報があっても合理的な仮置きを明示して前進してください。",
     "CEO未承認の仮説は確定事項として扱わず、その仮説に依存する判断は明示してください。",
+    "AI組織を作り続けることを目的化せず、現在のフェーズの完成と投資判断を育てる本来の事業を優先してください。",
     "",
     "# 役割定義",
     instructions,
@@ -115,6 +116,43 @@ const issueBrief = await runAgent(
 );
 console.log("Completed: Issue Analyzer");
 
+const plannerInstructions = await fs.readFile("docs/agents/PLANNER.md", "utf8");
+const plannerTask = [
+  "# 原文",
+  originalIssue,
+  "",
+  "# Issue Brief",
+  issueBrief,
+  "",
+  "Assumptions（CEO未承認）は検討用の仮置きです。確定事項として扱わず、依存する計画にはその旨を明記してください。",
+].join("\n");
+const plan = await runAgent(
+  "Planner",
+  plannerInstructions,
+  companyContext,
+  plannerTask,
+  `## Issue Analyzer\n${issueBrief}`,
+);
+console.log("Completed: Planner");
+
+const architectInstructions = await fs.readFile("docs/agents/ARCHITECT.md", "utf8");
+const architectTask = [
+  plannerTask,
+  "",
+  "# Planner",
+  plan,
+  "",
+  "Plannerの最優先項目を実現する最小の変更方針を設計してください。Plannerが今はやらないとした項目は対象外です。",
+].join("\n");
+const architecture = await runAgent(
+  "Architect",
+  architectInstructions,
+  companyContext,
+  architectTask,
+  [`## Issue Analyzer\n${issueBrief}`, `## Planner\n${plan}`].join("\n\n"),
+);
+console.log("Completed: Architect");
+
 const sharedTask = [
   "# 原文",
   originalIssue,
@@ -122,7 +160,13 @@ const sharedTask = [
   "# Issue Brief",
   issueBrief,
   "",
-  "後続AgentはIssue Briefを共通認識として扱い、原文との矛盾がある場合は原文を優先してください。",
+  "# Planner",
+  plan,
+  "",
+  "# Architect",
+  architecture,
+  "",
+  "後続AgentはIssue Briefを共通認識、Plannerを実行方針、Architectを変更方針として扱い、原文との矛盾がある場合は原文を優先してください。",
   "Assumptions（CEO未承認）は検討用の仮置きです。確定事項として扱わず、依存する提案にはその旨を明記してください。",
 ].join("\n");
 
@@ -136,26 +180,33 @@ const roles = [
 const outputs = [];
 for (const [name, path] of roles) {
   const instructions = await fs.readFile(path, "utf8");
-  const previous = outputs.map((x) => `## ${x.name}\n${x.text}`).join("\n\n");
+  const previous = [
+    `## Issue Analyzer\n${issueBrief}`,
+    `## Planner\n${plan}`,
+    `## Architect\n${architecture}`,
+    ...outputs.map((x) => `## ${x.name}\n${x.text}`),
+  ].join("\n\n");
   const text = await runAgent(name, instructions, companyContext, sharedTask, previous);
   outputs.push({ name, text });
   console.log(`Completed: ${name}`);
 }
 
 const body = [
-  "# AI Company OS v0.3",
-  `Issue #${issueNumber}をIssue Analyzerと4人のAgentで処理しました。`,
-  "会社資料と構造化したIssue Briefを共通コンテキストとして参照しています。",
+  "# AI Company OS v0.4",
+  `Issue #${issueNumber}をIssue Analyzer、Planner、Architect、4人のAgentで処理しました。`,
+  "会社資料、Issue Brief、実行優先順位、変更方針を共通コンテキストとして参照しています。",
   `## Issue Brief\n${issueBrief}`,
   "> ⚠️ **CEOレビュー対象**: `Assumptions（CEO未承認）`はAIによる仮置きです。承認されるまでは確定事項ではありません。",
+  `## Planner\n${plan}`,
+  `## Architect\n${architecture}`,
   ...outputs.map((x) => `## ${x.name}\n${x.text}`),
   "---",
   "## CEOに確認してほしいこと",
   "1. `Assumptions（CEO未承認）`は正しいか",
-  "2. 修正・削除すべき仮説はあるか",
-  "3. この仮説を前提に次へ進めてよいか",
+  "2. Plannerの優先順位と対象外は妥当か",
+  "3. Architectの変更方針で実装へ進めてよいか",
   "",
-  "回答例: `仮説1・2はOK、仮説3は削除`",
+  "回答例: `仮説はOK。優先順位・設計ともにGO`",
   `Model: \`${model}\``,
 ].join("\n\n");
 
