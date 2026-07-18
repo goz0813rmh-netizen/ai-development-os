@@ -118,6 +118,7 @@ for (const change of plan.files) {
 }
 
 const branch = `ai/issue-${issueNumber}-implementation`;
+const baseBranch = "main";
 const open = await github(`/repos/${owner}/${repo}/pulls?state=open&head=${owner}:${branch}`);
 if (open.length) throw new Error(`Implementation PR already exists: ${open[0].html_url}`);
 
@@ -146,19 +147,20 @@ try {
     body: JSON.stringify({
       title: String(plan.pr_title || `Issue #${issueNumber}: implementation`).slice(0, 200),
       head: branch,
-      base: "main",
+      base: baseBranch,
       body: `${plan.pr_body || plan.summary || "Approved implementation"}\n\nCloses #${issueNumber}\n\n- CEO APPROVED確認済み\n- 自動マージなし\n- git diff --check実行済み`,
     }),
   });
 } catch (error) {
+  const policyMessage = typeof error?.details?.message === "string" ? error.details.message : (typeof error?.body === "string" ? error.body : "");
   const blockedByPolicy =
     error?.status === 403 &&
-    /not permitted to create or approve pull requests/i.test(String(error?.details?.message || error?.body || error));
+    /not permitted to create or approve pull requests/i.test(policyMessage);
   if (!blockedByPolicy) throw error;
   console.warn(`PR auto-creation skipped: ${String(error?.message || error)}`);
 }
 
-const compareUrl = `https://github.com/${owner}/${repo}/compare/main...${branch}?expand=1`;
+const compareUrl = `https://github.com/${owner}/${repo}/compare/${baseBranch}...${branch}?expand=1`;
 await github(`/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
