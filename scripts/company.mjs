@@ -175,6 +175,29 @@ const engineeringPlan = await runAgent(
 );
 console.log("Completed: Engineer");
 
+const qaInstructions = await fs.readFile("docs/agents/QA.md", "utf8");
+const qaTask = [
+  engineerTask,
+  "",
+  "# Engineer",
+  engineeringPlan,
+  "",
+  "Engineerの実装計画を品質保証してください。要件・優先順位・設計は変更せず、検証漏れ、回帰リスク、技術負債、思想負債を確認してください。",
+].join("\n");
+const qaReport = await runAgent(
+  "QA",
+  qaInstructions,
+  companyContext,
+  qaTask,
+  [
+    `## Issue Analyzer\n${issueBrief}`,
+    `## Planner\n${plan}`,
+    `## Architect\n${architecture}`,
+    `## Engineer\n${engineeringPlan}`,
+  ].join("\n\n"),
+);
+console.log("Completed: QA");
+
 const sharedTask = [
   "# 原文",
   originalIssue,
@@ -191,7 +214,10 @@ const sharedTask = [
   "# Engineer",
   engineeringPlan,
   "",
-  "後続AgentはIssue Briefを共通認識、Plannerを実行方針、Architectを変更方針、Engineerを実装計画として扱い、原文との矛盾がある場合は原文を優先してください。",
+  "# QA",
+  qaReport,
+  "",
+  "後続AgentはIssue Briefを共通認識、Plannerを実行方針、Architectを変更方針、Engineerを実装計画、QAを品質判定として扱い、原文との矛盾がある場合は原文を優先してください。",
   "Assumptions（CEO未承認）は検討用の仮置きです。確定事項として扱わず、依存する提案にはその旨を明記してください。",
 ].join("\n");
 
@@ -210,6 +236,7 @@ for (const [name, path] of roles) {
     `## Planner\n${plan}`,
     `## Architect\n${architecture}`,
     `## Engineer\n${engineeringPlan}`,
+    `## QA\n${qaReport}`,
     ...outputs.map((x) => `## ${x.name}\n${x.text}`),
   ].join("\n\n");
   const text = await runAgent(name, instructions, companyContext, sharedTask, previous);
@@ -218,14 +245,15 @@ for (const [name, path] of roles) {
 }
 
 const body = [
-  "# AI Company OS v0.5",
-  `Issue #${issueNumber}をIssue Analyzer、Planner、Architect、Engineer、4人の後続Agentで処理しました。`,
-  "会社資料、Issue Brief、実行優先順位、変更方針、実装計画を共通コンテキストとして参照しています。",
+  "# AI Company OS v0.6",
+  `Issue #${issueNumber}をIssue Analyzer、Planner、Architect、Engineer、QA、4人の後続Agentで処理しました。`,
+  "会社資料、Issue Brief、実行優先順位、変更方針、実装計画、品質判定を共通コンテキストとして参照しています。",
   `## Issue Brief\n${issueBrief}`,
   "> ⚠️ **CEOレビュー対象**: `Assumptions（CEO未承認）`はAIによる仮置きです。承認されるまでは確定事項ではありません。",
   `## Planner\n${plan}`,
   `## Architect\n${architecture}`,
   `## Engineer\n${engineeringPlan}`,
+  `## QA\n${qaReport}`,
   ...outputs.map((x) => `## ${x.name}\n${x.text}`),
   "---",
   "## CEOに確認してほしいこと",
@@ -233,8 +261,10 @@ const body = [
   "2. Plannerの優先順位と対象外は妥当か",
   "3. Architectの変更方針で実装へ進めてよいか",
   "4. Engineerの実装計画で着手してよいか",
+  "5. QAの判定と修正要求は妥当か",
+  "6. Auditorが示した技術負債・思想負債を許容するか",
   "",
-  "回答例: `仮説はOK。優先順位・設計・実装計画ともにGO`",
+  "回答例: `仮説はOK。優先順位・設計・実装計画・QA判定ともにGO`",
   `Model: \`${model}\``,
 ].join("\n\n");
 
